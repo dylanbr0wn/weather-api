@@ -1,0 +1,11 @@
+{
+    "watch": ["src"],
+    "ext": "js",
+    "exec": "node src/index.js",
+    "restartable": "rs",
+    "ignore": ["node_modules/**node_modules"],
+    "env": {
+        "NODE_ENV": "development",
+        "PORT": 4000
+    }
+}
