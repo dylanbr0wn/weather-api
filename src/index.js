@@ -6,6 +6,8 @@ import cron from "node-cron";
 import weatherRouter from "./routes/weatherRouter.js";
 import { loadData } from "./utils/loaddata.js";
 
+import "dotenv/config"
+
 const app = express();
 const port = process.env.PORT || 4000;
 
