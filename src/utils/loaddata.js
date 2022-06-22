@@ -1,11 +1,12 @@
 import convert from "xml-js";
-import { kriging } from "kriging";
+import kriging from "./kriging.js";
 import * as Turf from "@turf/turf";
 import { getHTML, intersect, makeArr } from "../utils/utils.js";
 import * as d3 from "d3";
 import axios from "axios";
 import { client } from "./mongo.js";
 import { isoBands } from "marchingsquares";
+
 
 export const loadData = async () => {
     const { data: xml } = await axios.get(
