@@ -8,3 +8,5 @@ import { MongoClient } from "mongodb";
 
 // Connection URL
 export const client = new MongoClient(connectionURL);
+
+
