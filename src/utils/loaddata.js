@@ -208,7 +208,7 @@ const getRainStats = async (points, db) => {
 const getObservationTime = async (points, db) => {
     const observation_time = points.features[0].properties.observation_time
 
-    const collection = db.collection("rain-stats");
+    const collection = db.collection("last-observation");
 
     const { insertedId } = await collection.insertOne({ observation_time });
     await collection.deleteMany({ _id: { $ne: insertedId } });
