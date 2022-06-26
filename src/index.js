@@ -5,6 +5,7 @@ import cron from "node-cron";
 import { loadData } from "./utils/loaddata.js";
 
 import "dotenv/config"
+import { client } from "./utils/mongo.js";
 
 const app = express();
 const port = process.env.PORT || 4000;
@@ -16,7 +17,8 @@ app.use(express.text());
 app.use(express.urlencoded({ extended: true }));
 
 
-app.listen(port, () => {
+app.listen(port, async () => {
+    await client.connect();
     loadData();
     console.log(`Running at http://localhost:4000`);
     cron.schedule("* * * * *", loadData);
