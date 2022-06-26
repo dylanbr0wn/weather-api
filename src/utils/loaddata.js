@@ -5,121 +5,32 @@ import { getHTML, intersect, makeArr } from "../utils/utils.js";
 import * as d3 from "d3";
 import axios from "axios";
 import { client } from "./mongo.js";
-import { isoBands } from "marchingsquares";
 
 
 export const loadData = async () => {
-    const { data: xml } = await axios.get(
-        "https://www.victoriaweather.ca/stations/latest/allcurrent.xml",
-        {
-            headers: {
-                Accept: "application/xml",
-            },
-        }
-    );
-    const jsData = convert.xml2js(xml, {
-        compact: true,
-        spaces: 4,
-        nativeType: true,
-        textKey: "text",
-    });
-
-    let dataPoints = jsData.current_conditions.current_observation;
-
-    dataPoints = dataPoints.filter(
-        (point) => point.temperature && parseFloat(point.latitude.text) < 60
-    );
-
-    const long = [],
-        lat = [],
-        temp = [];
-
-    let newPoints = [];
-
-    let tempMax = {
-        temperature: {
-            text: -100,
-        },
-    };
-    let tempMin = {
-        temperature: {
-            text: 100,
-        },
-    };
-
-    dataPoints.forEach((point) => {
-        long.push(parseFloat(point.longitude.text) - 360);
-        lat.push(parseFloat(point.latitude.text));
-        temp.push(parseFloat(point.temperature.text));
-
-        if (parseFloat(point.temperature.text) > tempMax.temperature.text)
-            tempMax = point;
-
-        if (parseFloat(point.temperature.text) < tempMin.temperature.text)
-            tempMin = point;
-
-        newPoints.push(getTurfPoint(point));
-    });
-
-    newPoints = Turf.featureCollection(newPoints);
-
-    const island = Turf.feature({
-        coordinates: [
-            [
-                [-125.67796453456866, 48.82645842964928],
-                [-124.74626480947109, 48.53388081242173],
-                [-124.12134426214962, 48.352987949471014],
-                [-123.75775412552608, 48.25473525182136],
-                [-123.29190426297728, 48.28498699578307],
-                [-123.14419576997425, 48.40581492060613],
-                [-123.1328335782046, 48.66912781249633],
-                [-123.16692015351316, 48.93853594737391],
-                [-123.63277001606194, 49.31772215481024],
-                [-124.20087960453596, 49.38433647100575],
-                [-124.65536727531511, 49.70870880764804],
-                [-125.09849275432498, 50.02363012281822],
-                [-125.337098781484, 50.27844702316449],
-                [-125.98474371234477, 50.45239434476167],
-                [-126.62102645143548, 50.61128627109824],
-                [-127.39365549176037, 50.83427177039019],
-                [-127.82541877900061, 51.01332638323149],
-                [-128.51851247693878, 50.9059763143982],
-                [-128.65485877817255, 50.242127725727585],
-                [-128.06402480615964, 49.7527745974472],
-                [-127.15504946460135, 49.26584864698222],
-                [-125.67796453456866, 48.82645842964928],
-            ],
-        ],
-        type: "Polygon",
-    });
-    const rainStats = getRainStats(newPoints);
-
-    const observation_time = getObservationTime(newPoints);
-
-    var isobands = getIsobands(temp, long, lat, island, tempMax, tempMin);
-
-    let intersection = getIntersection(isobands, island);
-
     await client.connect();
-
     const db = client.db("victoria-weather");
-    const collection = db.collection("map-data");
 
-    const { insertedId } = await collection.insertOne({
-        isobands,
-        intersection,
-        island,
-        newPoints,
-        maxPoint: getTurfPoint(tempMax),
-        minPoint: getTurfPoint(tempMin),
-        rainStats,
-        observation_time,
-    });
-    await collection.deleteMany({ _id: { $ne: insertedId } });
+    const [{ newPoints, temp, long, lat, tempMax, tempMin }, island] = await Promise.all([
+        getWeatherData(db),
+        getIsland(db)
+    ])
+
+    const [_rain, _time, isobands] = await Promise.all([
+        getRainStats(newPoints, db),
+        getObservationTime(newPoints, db),
+        getIsobands(temp, long, lat, island, tempMax, tempMin, db)
+    ])
+
+    await getIntersection(isobands, island, db);
+
+    await client.close();
+
     console.log("Updated DB");
 };
 
-const getIsobands = (temp, long, lat, island, tempMax, tempMin) => {
+
+const getIsobands = async (temp, long, lat, island, tempMax, tempMin, db) => {
     var model = "exponential";
     var sigma2 = 0,
         alpha = 100;
@@ -173,10 +84,16 @@ const getIsobands = (temp, long, lat, island, tempMax, tempMin) => {
         breaksProperties: fills,
     });
 
+    const collection = db.collection("isobands");
+
+    const { insertedId } = await collection.insertOne({
+        isobands,
+    });
+    await collection.deleteMany({ _id: { $ne: insertedId } });
     // isobands = Turf.flatten(isobands);
     return isobands;
 };
-const getIntersection = (isobands, island) => {
+const getIntersection = async (isobands, island, db) => {
     let intersection = [];
 
     Turf.featureEach(isobands, (feature, i) => {
@@ -184,7 +101,14 @@ const getIntersection = (isobands, island) => {
         if (newFeature) intersection.push({ ...newFeature, id: i });
     });
 
+
     intersection = Turf.featureCollection(intersection);
+    const collection = db.collection("intersection");
+
+    const { insertedId } = await collection.insertOne({
+        intersection,
+    });
+    await collection.deleteMany({ _id: { $ne: insertedId } });
     return intersection;
 };
 
@@ -248,7 +172,7 @@ const getTurfPoint = (point) => {
     );
 };
 
-const getRainStats = (points) => {
+const getRainStats = async (points, db) => {
     let averageRain = 0;
     let maxRain = {
         properties: {
@@ -273,101 +197,127 @@ const getRainStats = (points) => {
 
     averageRain = averageRain / points.features.length;
 
+    const collection = db.collection("rain-stats");
+
+    const { insertedId } = await collection.insertOne({ maxRain, averageRain, numberReporting });
+    await collection.deleteMany({ _id: { $ne: insertedId } });
+
     return { maxRain, averageRain, numberReporting };
 };
 
-const getObservationTime = (points) => {
-    return points.features[0].properties.observation_time;
+const getObservationTime = async (points, db) => {
+    const observation_time = points.features[0].properties.observation_time
+
+    const collection = db.collection("rain-stats");
+
+    const { insertedId } = await collection.insertOne({ observation_time });
+    await collection.deleteMany({ _id: { $ne: insertedId } });
+
+
+
+    return observation_time;
 };
 
-const customMarchingSquares = (points, breaks, fills, bbox) => {
-    let currentLat = points.features[0].geometry.coordinates[0];
 
-    let rowData = [];
-    let totalData = [];
-
-    Turf.featureEach(points, (feature) => {
-        if (feature.geometry.coordinates[0] === currentLat)
-            rowData.push(feature.properties.temperature);
-        else {
-            totalData.push(rowData);
-            rowData = [feature.properties.temperature];
-            currentLat = feature.geometry.coordinates[0];
+async function getWeatherData(db) {
+    const { data: xml } = await axios.get(
+        "https://www.victoriaweather.ca/stations/latest/allcurrent.xml",
+        {
+            headers: {
+                Accept: "application/xml",
+            },
         }
+    );
+    const jsData = convert.xml2js(xml, {
+        compact: true,
+        spaces: 4,
+        nativeType: true,
+        textKey: "text",
     });
-    totalData.push(rowData);
 
-    let bands = [];
+    let dataPoints = jsData.current_conditions.current_observation;
 
-    for (let i = 0; i < breaks.length - 1; i++) {
-        const lowerBound = breaks[i];
+    dataPoints = dataPoints.filter(
+        (point) => point.temperature && parseFloat(point.latitude.text) < 60
+    );
 
-        const change = breaks[i + 1] - breaks[i];
+    const long = [], lat = [], temp = [];
 
-        const res = isoBands(totalData, lowerBound, change, {
-            noQuadtree: true,
-            verbose: true,
-        });
+    let newPoints = [];
 
-        let polly = Turf.polygon(res, {
-            temperatureLow: breaks[i],
-            temperatureHigh: breaks[i + 1],
-            fill: fills[i].fill,
-        });
-
-        polly = fixCoords(
-            polly,
-            rowData.length - 1,
-            totalData.length - 1,
-            bbox
-        );
-
-        bands.push(polly);
-    }
-
-    bands = Turf.featureCollection(bands);
-
-    const lng = bbox[0] + (bbox[2] - bbox[0]) / 2;
-    const lat = bbox[1] + (bbox[3] - bbox[1]) / 2;
-
-    let options = {
-        pivot: [lng, lat],
-    };
-    // bands = Turf.transformRotate(bands, 180, options);
-
-    return bands;
-};
-
-const fixCoords = (polly, lngLength, latLength, bbox) => {
-    const lngStart = bbox[0];
-    const latStart = bbox[1];
-
-    const lngRange = bbox[2] - bbox[0];
-    const latRange = bbox[3] - bbox[1];
-
-    let coords = Turf.getCoords(polly);
-
-    let newPolly = {
-        ...polly,
-        geometry: {
-            ...polly.geometry,
-            coordinates: coords.map((coord) => {
-                return coord.map((pair) => {
-                    let lng = pair[0];
-                    let lat = pair[1];
-
-                    lng = lngStart + (lng / lngLength) * lngRange;
-                    lat = (lat / latLength) * latRange + latStart;
-                    // console.log("lng", lng);
-                    // console.log("lnglength", lngLength);
-                    // console.log("lngRange", lngRange);
-                    // console.log("lngStart", lngStart);
-
-                    return [lng, lat];
-                });
-            }),
+    let tempMax = {
+        temperature: {
+            text: -100,
         },
     };
-    return newPolly;
-    // console.log(newPolly.geometry.coordinates);
-};
+    let tempMin = {
+        temperature: {
+            text: 100,
+        },
+    };
+
+    dataPoints.forEach((point) => {
+        long.push(parseFloat(point.longitude.text) - 360);
+        lat.push(parseFloat(point.latitude.text));
+        temp.push(parseFloat(point.temperature.text));
+
+        if (parseFloat(point.temperature.text) > tempMax.temperature.text)
+            tempMax = point;
+
+        if (parseFloat(point.temperature.text) < tempMin.temperature.text)
+            tempMin = point;
+
+        newPoints.push(getTurfPoint(point));
+    });
+
+    newPoints = Turf.featureCollection(newPoints);
+    const collection = db.collection("points-data");
+
+    const { insertedId } = await collection.insertOne({
+        newPoints,
+        maxPoint: getTurfPoint(tempMax),
+        minPoint: getTurfPoint(tempMin),
+    });
+    await collection.deleteMany({ _id: { $ne: insertedId } });
+    return { newPoints, temp, long, lat, tempMax, tempMin };
+}
+
+
+async function getIsland(db) {
+    const island = Turf.feature({
+        coordinates: [
+            [
+                [-125.67796453456866, 48.82645842964928],
+                [-124.74626480947109, 48.53388081242173],
+                [-124.12134426214962, 48.352987949471014],
+                [-123.75775412552608, 48.25473525182136],
+                [-123.29190426297728, 48.28498699578307],
+                [-123.14419576997425, 48.40581492060613],
+                [-123.1328335782046, 48.66912781249633],
+                [-123.16692015351316, 48.93853594737391],
+                [-123.63277001606194, 49.31772215481024],
+                [-124.20087960453596, 49.38433647100575],
+                [-124.65536727531511, 49.70870880764804],
+                [-125.09849275432498, 50.02363012281822],
+                [-125.337098781484, 50.27844702316449],
+                [-125.98474371234477, 50.45239434476167],
+                [-126.62102645143548, 50.61128627109824],
+                [-127.39365549176037, 50.83427177039019],
+                [-127.82541877900061, 51.01332638323149],
+                [-128.51851247693878, 50.9059763143982],
+                [-128.65485877817255, 50.242127725727585],
+                [-128.06402480615964, 49.7527745974472],
+                [-127.15504946460135, 49.26584864698222],
+                [-125.67796453456866, 48.82645842964928],
+            ],
+        ],
+        type: "Polygon",
+    });
+
+    const collection = db.collection("island");
+
+    const { insertedId } = await collection.insertOne({ island });
+    await collection.deleteMany({ _id: { $ne: insertedId } });
+
+    return island
+}
