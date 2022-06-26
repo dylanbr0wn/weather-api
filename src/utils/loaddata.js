@@ -39,7 +39,7 @@ const getIsobands = async (temp, long, lat, island, tempMax, tempMin, db) => {
 
     const bbox = Turf.bbox(island);
 
-    const grid = Turf.pointGrid(bbox, 0.5, { units: "kilometers" });
+    const grid = Turf.pointGrid(bbox, 1.5, { units: "kilometers" });
 
     let newGrid = [];
 
@@ -52,6 +52,12 @@ const getIsobands = async (temp, long, lat, island, tempMax, tempMin, db) => {
             variogram
         );
 
+        feature = Turf.simplify(feature, {
+            tolerance: 0.1,
+            highQuality: true,
+            mutate: true
+        });
+
         feature.properties = { ...feature.properties, temperature };
         newGrid.push(feature);
     });
@@ -61,7 +67,7 @@ const getIsobands = async (temp, long, lat, island, tempMax, tempMin, db) => {
     const max = tempMax.temperature.text;
     const min = tempMin.temperature.text;
 
-    const breaks = makeArr(min, max, 20);
+    const breaks = makeArr(min, max, 15);
 
     let color = d3
         .scaleSequential(d3.interpolateTurbo)
@@ -98,11 +104,18 @@ const getIntersection = async (isobands, island, db) => {
 
     Turf.featureEach(isobands, (feature, i) => {
         let newFeature = intersect(feature, island, feature);
+        // newFeature = Turf.flatten(Turf.cleanCoords(newFeature));
+        // newFeature = Turf.simplify(newFeature, {
+        //     tolerance: 0.005,
+        //     highQuality: true,
+        //     mutate: true
+        // });
         if (newFeature) intersection.push({ ...newFeature, id: i });
     });
 
 
     intersection = Turf.featureCollection(intersection);
+
     const collection = db.collection("intersection");
 
     const { insertedId } = await collection.insertOne({
@@ -186,7 +199,7 @@ const getRainStats = async (points, db) => {
         let rain = parseFloat(point.properties.rain);
         let rainRate = parseFloat(point.properties.rain_rate);
 
-        if (rainRate || rainRate === 0) numberReporting += 1;
+        if (rainRate || rainRate !== 0) numberReporting += 1;
 
         if (rain || rain === 0) {
             averageRain += rain;
