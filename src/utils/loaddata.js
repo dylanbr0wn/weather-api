@@ -53,7 +53,7 @@ const getIsobands = async (temp, long, lat, island, tempMax, tempMin, db) => {
         );
 
         feature = Turf.simplify(feature, {
-            tolerance: 0.1,
+            tolerance: 1,
             highQuality: true,
             mutate: true
         });
