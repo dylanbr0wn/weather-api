@@ -15,7 +15,8 @@ export const loadData = async () => {
         getIsland(db)
     ])
 
-    const [_rain, _time, isobands] = await Promise.all([
+    const [_points, _rain, _time, isobands] = await Promise.all([
+        savePoints(newPoints, tempMax, tempMin, db),
         getRainStats(newPoints, db),
         getObservationTime(newPoints, db),
         getIsobands(temp, long, lat, island, tempMax, tempMin, db)
@@ -26,6 +27,23 @@ export const loadData = async () => {
     console.log("Updated DB");
 };
 
+const savePoints = async (points, max, min, db) => {
+
+    const collection = db.collection("points-data");
+
+    const sumTemp = Turf.featureReduce(points, (acc, feature) => acc + parseFloat(feature.properties.temperature), 0);
+
+
+
+    const { insertedId } = await collection.insertOne({
+        points,
+        averageTemp: sumTemp / points.features.length,
+        maxPoint: getTurfPoint(max),
+        minPoint: getTurfPoint(min),
+    });
+    await collection.deleteMany({ _id: { $ne: insertedId } });
+    return points
+}
 
 const getIsobands = async (temp, long, lat, island, tempMax, tempMin, db) => {
     var model = "exponential";
@@ -229,7 +247,7 @@ const getObservationTime = async (points, db) => {
 };
 
 
-async function getWeatherData(db) {
+async function getWeatherData() {
     const { data: xml } = await axios.get(
         "https://www.victoriaweather.ca/stations/latest/allcurrent.xml",
         {
@@ -279,16 +297,7 @@ async function getWeatherData(db) {
 
         newPoints.push(getTurfPoint(point));
     });
-
     newPoints = Turf.featureCollection(newPoints);
-    const collection = db.collection("points-data");
-
-    const { insertedId } = await collection.insertOne({
-        newPoints,
-        maxPoint: getTurfPoint(tempMax),
-        minPoint: getTurfPoint(tempMin),
-    });
-    await collection.deleteMany({ _id: { $ne: insertedId } });
     return { newPoints, temp, long, lat, tempMax, tempMin };
 }
 
