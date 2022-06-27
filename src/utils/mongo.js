@@ -1,6 +1,6 @@
 import "dotenv/config"
 
-const connectionURL = `mongodb+srv://${process.env.MONGO_USER}:${process.env.MONGO_PASS}@victoria-weather.hzivz.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
+const connectionURL = `mongodb+srv://${process.env.MONGO_USER}:${process.env.MONGO_PASS}@victoria-weather.hzivz.mongodb.net/myFirstDatabase?retryWrites=true&w=majority&compressors=snappy,zlib`;
 
 import { MongoClient } from "mongodb";
 // or as an es module:
