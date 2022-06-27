@@ -8,6 +8,7 @@ import { client } from "./mongo.js";
 
 
 export const loadData = async () => {
+    await client.connect();
     const db = client.db("victoria-weather");
 
     const [{ newPoints, temp, long, lat, tempMax, tempMin }, island] = await Promise.all([
@@ -23,8 +24,9 @@ export const loadData = async () => {
     ])
 
     await getIntersection(isobands, island, db);
-
+    await client.close();
     console.log("Updated DB");
+
 };
 
 const savePoints = async (points, max, min, db) => {

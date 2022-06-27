@@ -18,7 +18,7 @@ app.use(express.urlencoded({ extended: true }));
 
 
 app.listen(port, async () => {
-    await client.connect();
+
     loadData();
     console.log(`Running at http://localhost:4000`);
     cron.schedule("* * * * *", loadData);
